@@ -316,7 +316,7 @@ The `revdiff` plugin installs both interactive skills. The separate `revdiff-pla
 
 #### OpenCode
 
-revdiff integrates with [OpenCode](https://github.com/opencode-ai/opencode) via a tool, slash command, and plan-review plugin. The tool wraps the existing `launch-revdiff.sh` launcher, so terminal detection stays in sync automatically.
+revdiff integrates with [OpenCode](https://opencode.ai) via a tool, slash command, and plan-review plugin. The tool wraps the existing `launch-revdiff.sh` launcher, so terminal detection stays in sync automatically.
 
 **Install:**
 

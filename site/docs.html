@@ -821,7 +821,7 @@ codex plugin add revdiff-planning@revdiff</code></div>
 
         <!-- opencode integration -->
         <h2 id="opencode-install">OpenCode integration</h2>
-        <p>revdiff integrates with <a href="https://github.com/opencode-ai/opencode">OpenCode</a> via a tool, slash command, and plan-review plugin. The tool wraps the existing <code>launch-revdiff.sh</code> launcher, so terminal detection stays in sync automatically.</p>
+        <p>revdiff integrates with <a href="https://opencode.ai">OpenCode</a> via a tool, slash command, and plan-review plugin. The tool wraps the existing <code>launch-revdiff.sh</code> launcher, so terminal detection stays in sync automatically.</p>
         <div class="code-block"><code><span class="code-comment"># from the revdiff repo</span>
 cd plugins/opencode && bash setup.sh</code></div>
         <p>The setup script copies files to <code>~/.config/opencode/</code> (commands, tools, plugins) and registers the plan-review plugin in <code>opencode.json</code>. The tool and plan-review plugin treat exit code <code>10</code> as success-with-annotations and keep captured output. Restart OpenCode after installing. See <a href="https://github.com/umputun/revdiff/tree/master/plugins/opencode">plugins/opencode/README.md</a> for manual installation.</p>
