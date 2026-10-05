@@ -77,8 +77,7 @@ func (b terminalBridge) run(ctx context.Context, args []string) (int, error) {
 	if err := <-drained; err != nil && !errors.Is(err, syscall.EIO) {
 		return 1, fmt.Errorf("read terminal output: %w", err)
 	}
-	var exited *exec.ExitError
-	if errors.As(waitErr, &exited) {
+	if exited, ok := errors.AsType[*exec.ExitError](waitErr); ok {
 		status := exited.Sys().(syscall.WaitStatus)
 		if status.Signaled() {
 			return 128 + int(status.Signal()), nil

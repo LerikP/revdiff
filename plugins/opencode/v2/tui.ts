@@ -1,5 +1,5 @@
 import type { Plugin } from "@opencode/plugin/tui";
-import type { SessionInfo, SessionMessageInfo } from "@opencode/client";
+import type { SessionInfo } from "@opencode/client";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { ReviewClaims } from "./claims.ts";
@@ -12,7 +12,6 @@ type Operation = {
   annotations: string;
   feedback?: { id: string; accepted: boolean };
 };
-type IdleMarker = { type: "idle"; outcome: string };
 
 export default {
   id: "revdiff.cli",
@@ -55,12 +54,15 @@ export default {
             error instanceof ReviewError ? error.annotations : op.annotations;
           const message =
             error instanceof Error ? error.message : String(error);
-          if (notes) {
+          const detached = error instanceof ReviewError && error.detached;
+          if (notes || detached) {
             // The host owns the alert; unloading never waits for a user to dismiss it.
             void ctx.ui.dialog
               .alert({
-                title: "Review annotations were not delivered",
-                message: `${message}\n\n${notes}`,
+                title: detached
+                  ? "Review detached"
+                  : "Review annotations were not delivered",
+                message: notes ? `${message}\n\n${notes}` : message,
               })
               .catch((failure) =>
                 console.error("revdiff annotations dialog:", failure),
@@ -121,12 +123,10 @@ export default {
         session.outcome !== "succeeded"
       )
         return;
-      // The runtime may include a trailing idle marker absent from the SDK union.
       await waitFor(ctx.data.session.message.sync(sessionID), signal);
       signal.throwIfAborted();
       if (displayedOnly && !displayed(sessionID)) return;
-      const messages: Array<SessionMessageInfo | IdleMarker> =
-        ctx.data.session.message.list(sessionID);
+      const messages = ctx.data.session.message.list(sessionID);
       const last = messages.at(-1);
       const message =
         last?.type === "idle" && last.outcome === "succeeded"
@@ -261,7 +261,10 @@ export default {
                     ? await ctx.client.session.get({ sessionID }, { signal })
                     : undefined;
                   signal.throwIfAborted();
-                  if (session?.parentID) return;
+                  if (session?.parentID)
+                    throw new Error(
+                      "Manual review requires a root session. Open the parent session and run /revdiff there.",
+                    );
                   await enqueue(op, async () => {
                     op.annotations = await launcher.review(
                       {

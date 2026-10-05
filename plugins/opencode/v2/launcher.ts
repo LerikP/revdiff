@@ -16,11 +16,13 @@ type ProcessResult = { code: number | null; stdout: string; stderr: string };
 
 export class ReviewError extends Error {
   readonly annotations: string;
+  readonly detached: boolean;
 
-  constructor(message: string, annotations: string) {
+  constructor(message: string, annotations: string, detached = false) {
     super(message);
     this.name = "ReviewError";
     this.annotations = annotations;
+    this.detached = detached;
   }
 }
 
@@ -66,7 +68,11 @@ export class Launcher {
       const annotations =
         (await readFile(output, "utf8")).trim() || result.stdout.trim();
       if (signal.aborted)
-        throw new ReviewError("Review cancelled", annotations);
+        throw new ReviewError(
+          "Review cancelled. A terminal-owned review may still be open, but it is detached from OpenCode and its output directory has been removed. Finish the review normally to save any remaining notes to revdiff history; they will not be delivered automatically.",
+          annotations,
+          true,
+        );
       if (result.code !== 0 && result.code !== 10)
         throw new ReviewError(
           result.stderr.trim() ||

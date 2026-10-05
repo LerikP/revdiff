@@ -484,26 +484,49 @@ test("v2 installation does not require a working npm", async () => {
   }
 });
 
-for (const [filename, content] of [
-  ["opencode.json", '{"plugin": "not an array"}'],
-  [
-    "opencode.jsonc",
-    '{\n  // keep this comment\n  "model": "provider/model"\n}\n',
-  ],
-] as const) {
-  test(`v1 setup preserves unsupported ${filename} without installing partial files`, async () => {
-    const sandbox = await fixture("1.18.32");
-    try {
-      const config = path.join(sandbox.config, filename);
-      await writeFile(config, content);
-      assert.throws(() => sandbox.run(), /Invalid|JSONC/);
-      assert.equal(await readFile(config, "utf8"), content);
-      assert.equal(
-        await stat(path.join(sandbox.config, "tools")).catch(() => false),
-        false,
-      );
-    } finally {
-      await sandbox.close();
-    }
-  });
-}
+test("v1 setup preserves invalid JSON without installing partial files", async () => {
+  const sandbox = await fixture("1.18.32");
+  try {
+    const content = '{"plugin": "not an array"}';
+    const config = path.join(sandbox.config, "opencode.json");
+    await writeFile(config, content);
+    assert.throws(() => sandbox.run(), /Invalid/);
+    assert.equal(await readFile(config, "utf8"), content);
+    assert.equal(
+      await stat(path.join(sandbox.config, "tools")).catch(() => false),
+      false,
+    );
+  } finally {
+    await sandbox.close();
+  }
+});
+
+test("v1 setup leaves JSONC untouched and installs beside it", async () => {
+  const sandbox = await fixture("1.18.32");
+  try {
+    const config = path.join(sandbox.config, "opencode.jsonc");
+    const content =
+      '{\n  // keep this comment\n  "model": "provider/model"\n}\n';
+    await writeFile(config, content);
+    sandbox.run();
+    assert.equal(await readFile(config, "utf8"), content);
+    assert.deepEqual(
+      JSON.parse(
+        await readFile(path.join(sandbox.config, "opencode.json"), "utf8"),
+      ),
+      {
+        plugin: ["./plugins/revdiff-plan-review.ts"],
+      },
+    );
+    assert.ok(
+      await stat(
+        path.join(sandbox.config, "plugins", "revdiff-plan-review.ts"),
+      ),
+    );
+    assert.ok(
+      await stat(path.join(sandbox.config, "tools", "launch-revdiff.sh")),
+    );
+  } finally {
+    await sandbox.close();
+  }
+});

@@ -68,6 +68,10 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: plugins/opencode/v2/package-lock.json
+      - name: install jq
+        run: |
+          command -v jq >/dev/null || { sudo apt-get update && sudo apt-get install -y jq; }
+          jq --version
       - name: install dependencies
         run: npm ci --ignore-scripts
       - name: typecheck and test

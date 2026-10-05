@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
 import { test, before, after, beforeEach } from "node:test";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, readdir, readFile, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  rm,
+  readdir,
+  readFile,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   setTimeout as delay,
   setImmediate as nextTurn,
@@ -193,6 +201,24 @@ test("CLI /revdiff opens locally and returns annotations to its captured session
   }
 });
 
+test("manual review from a subagent session reports why it cannot launch", async (test) => {
+  const terminal = client();
+  terminal.session.parentID = "parent-session";
+  test.mock.method(Launcher.prototype, "review", () =>
+    assert.fail("subagent review must not launch"),
+  );
+  const dispose = await plugin.setup(terminal.ctx);
+  try {
+    await terminal.commands[0].run();
+    assert.deepEqual(terminal.prompts, []);
+    assert.equal(terminal.alerts.length, 1);
+    assert.equal(terminal.alerts[0].variant, "error");
+    assert.match(terminal.alerts[0].message, /subagent|root session/i);
+  } finally {
+    await dispose?.();
+  }
+});
+
 test("manual review from home opens locally and a clean exit leaves home unchanged", async (test) => {
   const terminal = client();
   terminal.navigate();
@@ -307,10 +333,19 @@ test("two CLI clients showing the same plan open one review, and clean exit keep
       (launches[0] as { plan: string }).plan,
       "# Plan\n\nImplement and test.",
     );
-    assert.equal(first.session.agent, "plan");
-    assert.deepEqual(first.prompts, []);
-    await first.emit("session.execution.succeeded");
+    for (const terminal of [first, second]) {
+      assert.deepEqual(terminal.prompts, []);
+      assert.deepEqual(terminal.alerts, []);
+    }
+    await Promise.all([
+      first.emit("session.execution.succeeded"),
+      second.emit("session.execution.succeeded"),
+    ]);
     assert.equal(launches.length, 1);
+    for (const terminal of [first, second]) {
+      assert.deepEqual(terminal.prompts, []);
+      assert.deepEqual(terminal.alerts, []);
+    }
   } finally {
     for (const close of cleanup) await close?.();
   }
@@ -336,6 +371,19 @@ test("one completion event has one owner even with different message snapshots",
       second.emit("session.execution.succeeded"),
     ]);
     assert.equal(launches.length, 1);
+    for (const terminal of [first, second]) {
+      assert.deepEqual(terminal.prompts, []);
+      assert.deepEqual(terminal.alerts, []);
+    }
+    await Promise.all([
+      first.emit("session.execution.succeeded"),
+      second.emit("session.execution.succeeded"),
+    ]);
+    assert.equal(launches.length, 1);
+    for (const terminal of [first, second]) {
+      assert.deepEqual(terminal.prompts, []);
+      assert.deepEqual(terminal.alerts, []);
+    }
   } finally {
     for (const close of cleanup) await close?.();
   }
@@ -352,7 +400,7 @@ test("plan annotations target the original session after the client changes its 
     await terminal.emit("session.execution.succeeded");
     assert.equal(terminal.prompts[0]?.sessionID, terminal.session.id);
     assert.match(terminal.prompts[0]?.text, /Add verification/);
-    assert.equal(terminal.session.agent, "plan");
+    assert.deepEqual(terminal.alerts, []);
   } finally {
     await dispose?.();
   }
@@ -781,6 +829,141 @@ test("cleanup releases subscriptions without waiting for the notes dialog", asyn
     await dispose?.();
   }
 });
+
+for (const reason of [
+  "session.execution.started",
+  "session.agent.selected",
+  "session.deleted",
+  "unload",
+]) {
+  test(
+    `an external review is reported as detached on ${reason} before any notes are flushed`,
+    { timeout: 10_000 },
+    async (test) => {
+      const directory = await mkdtemp(path.join(tmpdir(), "revdiff-detached-"));
+      const bin = path.join(directory, "bin");
+      const pidFile = path.join(directory, "pane-pid");
+      const readyFile = path.join(directory, "ready");
+      const releaseFile = path.join(directory, "quit");
+      const historyFile = path.join(directory, "history.txt");
+      const doneFile = path.join(directory, "done");
+      await mkdir(bin);
+      await writeFile(
+        path.join(bin, "agtermctl"),
+        `#!${process.execPath}
+const { spawn } = require("node:child_process");
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+if (args.slice(0, 3).join(" ") === "session overlay open") {
+  const child = spawn("/bin/sh", ["-c", args[3]], { detached: true, stdio: "ignore" });
+  fs.writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));
+  child.on("exit", code => process.exit(code ?? 1));
+}
+`,
+        { mode: 0o755 },
+      );
+      await writeFile(
+        path.join(bin, "revdiff"),
+        `#!${process.execPath}
+const fs = require("node:fs");
+const output = process.argv.slice(2).findLast(arg => arg.startsWith("--output=")).slice(9);
+fs.writeFileSync(${JSON.stringify(readyFile)}, output);
+const timer = setInterval(() => {
+  if (!fs.existsSync(${JSON.stringify(releaseFile)})) return;
+  clearInterval(timer);
+  try { fs.writeFileSync(output, "Late review notes"); } catch {}
+  fs.writeFileSync(${JSON.stringify(historyFile)}, "Late review notes");
+  fs.writeFileSync(${JSON.stringify(doneFile)}, "done");
+}, 10);
+`,
+        { mode: 0o755 },
+      );
+      const source = fileURLToPath(
+        new URL(
+          "../../../.claude-plugin/skills/revdiff/scripts/launch-revdiff.sh",
+          import.meta.url,
+        ),
+      );
+      await writeFile(
+        path.join(directory, "launch-revdiff.sh"),
+        `#!/bin/bash
+export PATH="${bin}:$PATH"
+export AGTERM_SESSION_ID=fixture
+exec bash "${source}" "$@"
+`,
+      );
+      const terminal = client();
+      terminal.session.location.directory = directory;
+      const original = Launcher.prototype.review;
+      test.mock.method(
+        Launcher.prototype,
+        "review",
+        (input: Parameters<Launcher["review"]>[0], signal: AbortSignal) =>
+          original.call(new Launcher(directory), input, signal),
+      );
+      const dispose = await plugin.setup(terminal.ctx);
+      const review = terminal.emit("session.execution.succeeded");
+      try {
+        let output: string | undefined;
+        const deadline = Date.now() + 5_000;
+        while (!output && Date.now() < deadline) {
+          output = await readFile(readyFile, "utf8").catch(() => undefined);
+          if (!output) await delay(10);
+        }
+        assert.ok(output, "the separate terminal process must have started");
+        assert.equal(await readFile(output, "utf8"), "");
+        const panePID = Number(await readFile(pidFile, "utf8"));
+        assert.doesNotThrow(() => process.kill(-panePID, 0));
+        if (reason === "unload") await dispose?.();
+        else terminal.emit(reason);
+        await review;
+        assert.doesNotThrow(
+          () => process.kill(-panePID, 0),
+          "terminal-owned revdiff must survive launcher cancellation",
+        );
+        assert.deepEqual(terminal.prompts, []);
+        const notice = terminal.alerts.find(
+          (item) => item.title === "Review detached",
+        );
+        assert.ok(
+          notice,
+          "cancellation must report detachment even with no flushed notes",
+        );
+        assert.match(notice.message, /history/i);
+        assert.match(notice.message, /not.*delivered automatically/i);
+        await writeFile(releaseFile, "quit");
+        const finishDeadline = Date.now() + 3_000;
+        while (
+          Date.now() < finishDeadline &&
+          !(await readFile(doneFile, "utf8").catch(() => ""))
+        )
+          await delay(10);
+        assert.equal(await readFile(historyFile, "utf8"), "Late review notes");
+        assert.deepEqual(terminal.prompts, []);
+      } finally {
+        await dispose?.();
+        await writeFile(releaseFile, "quit");
+        const panePID = Number(await readFile(pidFile, "utf8").catch(() => ""));
+        if (panePID > 0) {
+          const deadline = Date.now() + 1_000;
+          while (Date.now() < deadline) {
+            try {
+              process.kill(-panePID, 0);
+            } catch {
+              break;
+            }
+            await delay(10);
+          }
+          try {
+            process.kill(-panePID, "SIGKILL");
+          } catch {}
+        }
+        await review;
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+}
 
 for (const stage of ["initial", "delivery"] as const) {
   test(`cleanup interrupts a stalled message sync during ${stage} lookup`, async (test) => {

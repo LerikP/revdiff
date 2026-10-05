@@ -22,8 +22,6 @@ install_v1() {
     local plugin_entry="./plugins/revdiff-plan-review.ts"
     if [[ -f "$config_file" ]]; then
         jq -e 'type == "object" and (.plugin == null or (.plugin | type == "array"))' "$config_file" >/dev/null || fail "Invalid opencode.json or plugin array."
-    elif [[ -f "$CONFIG_DIR/opencode.jsonc" ]]; then
-        fail "Existing opencode.jsonc found. Use the manual v1 installation in README.md to preserve JSONC settings."
     fi
 
     mkdir -p "$CONFIG_DIR/commands" "$CONFIG_DIR/tools" "$CONFIG_DIR/plugins"
