@@ -4,7 +4,7 @@
 
 - [revdiff](https://github.com/umputun/revdiff) installed and in the terminal client's `PATH`
 - A supported terminal: agterm, tmux, zellij, herdr, Kitty, WezTerm, cmux, Ghostty, iTerm2 or Emacs vterm
-- `jq` for v1 installation or updating an existing JSON configuration
+- `jq` when `opencode.json` already exists
 
 ## Installation
 
@@ -27,10 +27,10 @@ Restart OpenCode after installation. Existing installations of the same major ca
 ### Switching major versions
 
 - **v1 → v2:** cleanup is automatic. The installer removes `plugins/revdiff-plan-review.ts`, the obsolete `commands/revdiff.md`, and the exact string `./plugins/revdiff-plan-review.ts` from the `plugin`/`plugins` arrays in `opencode.json`. Other entries, options, files and the v1 tool are preserved.
-- **JSONC:** `opencode.jsonc` is left byte-identical. V2 installation prints a notice to remove the old registration manually if present. V1 installs normally and creates its registration in `opencode.json` alongside an existing JSONC file.
+- **JSONC:** V2 leaves `opencode.jsonc`, and `opencode.json` containing comments or trailing commas, byte-identical and prints a manual-cleanup notice. V1 installs normally and creates its registration in `opencode.json` alongside an existing JSONC file.
 - **v2 → v1:** the installer restores the v1 files and registration. The nested `plugins/revdiff/` directory is inert to v1 and remains in place.
 
-An early experimental v2 package containing `index.*` or `server.*` must be moved aside before installing this CLI-only version. Those entrypoints would cause OpenCode to load a server plugin.
+If `plugins/revdiff/` contains `index.*` or `server.*`, move that directory aside before installation: OpenCode would load it as a server plugin.
 
 ## OpenCode v2
 
@@ -42,7 +42,7 @@ The v2 integration lives in `v2/` and supports OpenCode **v2.0.0+**. One CLI plu
 
 Or install manually from `plugins/opencode/`:
 
-For a manual v1 → v2 migration, first remove the old plan plugin, Markdown command and exact config registration listed under **Switching major versions**. Move any experimental server-plugin directory aside before copying the files.
+For a manual v1 → v2 migration, first remove the old plan plugin, Markdown command and exact config registration listed under **Switching major versions**. If the destination contains `index.*` or `server.*`, move it aside before copying the CLI-only files.
 
 ```sh
 CONFIG_DIR="${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
@@ -89,7 +89,7 @@ npm run typecheck
 npm run test:runtime -- /absolute/path/to/opencode-v2
 ```
 
-Development checks require Node.js 22.18+ and npm. The runtime check uses the project's Go toolchain to build `app/opencode-runtime-pty/`, a macOS/Linux PTY bridge using the existing `golang.org/x/sys/unix` dependency. The bridge is covered by the root Go test suite and is not installed with the plugin. The check installs the package without `node_modules`, server entrypoints or a Markdown command, then runs the supplied **real OpenCode CLI** with a private server and isolated config. It exercises clean and annotated review from home, creation of a feedback session, automatic plan review and revision with the reviewed snapshot, and `/revdiff --staged --only="a b.go"` in an existing session. A local model endpoint, fake terminal-control executable and fake revdiff binary provide deterministic boundaries; no external LLM or real emulator overlay is used. Two-client ownership and cancellation, including a terminal process outside the launcher's process group, are covered separately through the CLI entrypoint and real filesystem claims.
+Development checks require Node.js 22.18+ and npm. The runtime check uses the project's Go toolchain to build `app/ptybridge/`, a macOS/Linux PTY bridge using the existing `golang.org/x/sys/unix` dependency. The bridge is covered by the root Go test suite and is not installed with the plugin. The check installs the package without `node_modules`, server entrypoints or a Markdown command, then runs the supplied **real OpenCode CLI** with a private server and isolated config. It exercises clean and annotated review from home, creation of a feedback session, automatic plan review and revision with the reviewed snapshot, and `/revdiff --staged --only="a b.go"` in an existing session. A local model endpoint, fake terminal-control executable and fake revdiff binary provide deterministic boundaries; no external LLM or real emulator overlay is used. Two-client ownership and cancellation, including a terminal process outside the launcher's process group, are covered separately through the CLI entrypoint and real filesystem claims.
 
 ## OpenCode v1
 

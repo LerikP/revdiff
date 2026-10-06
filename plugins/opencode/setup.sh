@@ -17,10 +17,10 @@ usage() {
 }
 
 install_v1() {
-    command -v jq >/dev/null 2>&1 || fail "jq is required for v1 installation."
     local config_file="$CONFIG_DIR/opencode.json"
     local plugin_entry="./plugins/revdiff-plan-review.ts"
     if [[ -f "$config_file" ]]; then
+        command -v jq >/dev/null 2>&1 || fail "jq is required to update opencode.json."
         jq -e 'type == "object" and (.plugin == null or (.plugin | type == "array"))' "$config_file" >/dev/null || fail "Invalid opencode.json or plugin array."
     fi
 
@@ -51,22 +51,26 @@ install_v2() {
     local file
     for file in "$target"/index.* "$target"/server.*; do
         if [[ -e "$file" ]]; then
-            fail "An experimental server plugin is installed in $target; move that directory aside before installing the CLI-only plugin."
+            fail "$target contains index.* or server.*, which OpenCode would load as a server plugin; move that directory aside before installing the CLI-only plugin."
         fi
     done
     local config_file="$CONFIG_DIR/opencode.json"
     local entry="./plugins/revdiff-plan-review.ts"
     if [[ -f "$config_file" ]]; then
         command -v jq >/dev/null 2>&1 || fail "jq is required to clean up opencode.json."
-        jq -e 'type == "object"' "$config_file" >/dev/null || fail "Invalid opencode.json."
-        if jq -e --arg entry "$entry" 'any((.plugin[]?, .plugins[]?); . == $entry)' "$config_file" >/dev/null; then
-            local temporary
-            temporary=$(mktemp "$CONFIG_DIR/.revdiff-config-XXXXXX")
-            if jq --arg entry "$entry" 'reduce ["plugin", "plugins"][] as $key (.; if (.[$key] | type) == "array" then .[$key] |= map(select(. != $entry)) else . end)' "$config_file" > "$temporary"; then
-                mv "$temporary" "$config_file"
-            else
-                rm -f "$temporary"
-                fail "Could not clean up the v1 plugin registration."
+        if ! jq empty "$config_file" >/dev/null 2>&1; then
+            echo "Notice: opencode.json is unchanged. Remove the exact $entry registration manually if present."
+        else
+            jq -e 'type == "object"' "$config_file" >/dev/null || fail "Invalid opencode.json."
+            if jq -e --arg entry "$entry" 'any((.plugin[]?, .plugins[]?); . == $entry)' "$config_file" >/dev/null; then
+                local temporary
+                temporary=$(mktemp "$CONFIG_DIR/.revdiff-config-XXXXXX")
+                if jq --arg entry "$entry" 'reduce ["plugin", "plugins"][] as $key (.; if (.[$key] | type) == "array" then .[$key] |= map(select(. != $entry)) else . end)' "$config_file" > "$temporary"; then
+                    mv "$temporary" "$config_file"
+                else
+                    rm -f "$temporary"
+                    fail "Could not clean up the v1 plugin registration."
+                fi
             fi
         fi
     fi

@@ -7,6 +7,7 @@ import {
   mkdir,
   rm,
   stat,
+  symlink,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -82,6 +83,8 @@ test("setup detects v2 and installs a dependency-free local package", async () =
       false,
     );
     assert.ok(await stat(path.join(installed, "tui.ts")));
+    assert.ok(await stat(path.join(installed, "launcher.ts")));
+    assert.ok(await stat(path.join(installed, "claims.ts")));
     assert.equal(
       await readFile(path.join(sandbox.config, "opencode.json"), "utf8"),
       config,
@@ -169,6 +172,63 @@ test("setup detects v1 and registers it once in its HOME config", async () => {
     await sandbox.close();
   }
 });
+
+test("fresh v1 installation does not require jq", async () => {
+  const sandbox = await fixture("1.18.32");
+  try {
+    for (const name of ["bash", "mkdir", "cp", "chmod"]) {
+      await symlink(`/bin/${name}`, path.join(sandbox.bin, name));
+    }
+    await symlink("/usr/bin/dirname", path.join(sandbox.bin, "dirname"));
+    sandbox.run([], { PATH: sandbox.bin });
+    assert.deepEqual(
+      JSON.parse(
+        await readFile(path.join(sandbox.config, "opencode.json"), "utf8"),
+      ),
+      {
+        plugin: ["./plugins/revdiff-plan-review.ts"],
+      },
+    );
+    assert.ok(
+      await stat(
+        path.join(sandbox.config, "plugins", "revdiff-plan-review.ts"),
+      ),
+    );
+    assert.ok(
+      await stat(path.join(sandbox.config, "tools", "launch-revdiff.sh")),
+    );
+  } finally {
+    await sandbox.close();
+  }
+});
+
+for (const [name, content] of [
+  [
+    "comment",
+    '{\n // keep this comment\n "plugin": ["./plugins/revdiff-plan-review.ts"],\n "model": "provider/model"\n}\n',
+  ],
+  [
+    "trailing comma",
+    '{"plugin": ["./plugins/revdiff-plan-review.ts",], "model": "provider/model",}\n',
+  ],
+] as const) {
+  test(`v2 installs with a ${name} in opencode.json and requests manual cleanup`, async () => {
+    const sandbox = await fixture("opencode v2.0.18");
+    try {
+      const file = path.join(sandbox.config, "opencode.json");
+      await writeFile(file, content);
+      const output = sandbox.run();
+      assert.match(output, /Notice: opencode\.json is unchanged/);
+      assert.match(output, /registration manually/);
+      assert.equal(await readFile(file, "utf8"), content);
+      assert.ok(
+        await stat(path.join(sandbox.config, "plugins", "revdiff", "tui.ts")),
+      );
+    } finally {
+      await sandbox.close();
+    }
+  });
+}
 
 test("v1 rejects a custom config directory before modifying its contents", async () => {
   const sandbox = await fixture("1.18.32");

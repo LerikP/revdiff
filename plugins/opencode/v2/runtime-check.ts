@@ -208,7 +208,7 @@ await writeFile(
 );
 
 const pty = path.join(root, "runtime-pty");
-execFileSync("go", ["build", "-o", pty, "./app/opencode-runtime-pty"], {
+execFileSync("go", ["build", "-o", pty, "./app/ptybridge"], {
   cwd: fileURLToPath(new URL("../../../", import.meta.url)),
 });
 const terminal = spawn(pty, [binary, "--standalone", project], {

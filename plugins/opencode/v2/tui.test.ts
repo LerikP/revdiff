@@ -204,16 +204,19 @@ test("CLI /revdiff opens locally and returns annotations to its captured session
 test("manual review from a subagent session reports why it cannot launch", async (test) => {
   const terminal = client();
   terminal.session.parentID = "parent-session";
-  test.mock.method(Launcher.prototype, "review", () =>
-    assert.fail("subagent review must not launch"),
-  );
+  let launches = 0;
+  test.mock.method(Launcher.prototype, "review", async () => {
+    launches++;
+    return "";
+  });
   const dispose = await plugin.setup(terminal.ctx);
   try {
     await terminal.commands[0].run();
+    assert.equal(launches, 0);
     assert.deepEqual(terminal.prompts, []);
     assert.equal(terminal.alerts.length, 1);
     assert.equal(terminal.alerts[0].variant, "error");
-    assert.match(terminal.alerts[0].message, /subagent|root session/i);
+    assert.match(terminal.alerts[0].message, /root session/i);
   } finally {
     await dispose?.();
   }
@@ -727,9 +730,11 @@ for (const scenario of [
 ] as const) {
   test(`automatic plan review ignores ${scenario}`, async (test) => {
     const terminal = client();
-    test.mock.method(Launcher.prototype, "review", () =>
-      assert.fail("unexpected review"),
-    );
+    let launches = 0;
+    test.mock.method(Launcher.prototype, "review", async () => {
+      launches++;
+      return "";
+    });
     if (scenario === "background") terminal.navigate("another-session");
     if (scenario === "subagent") terminal.session.parentID = "parent";
     if (scenario === "build") terminal.session.agent = "build";
@@ -738,7 +743,9 @@ for (const scenario of [
     const dispose = await plugin.setup(terminal.ctx);
     try {
       await terminal.emit("session.execution.succeeded");
+      assert.equal(launches, 0);
       assert.deepEqual(terminal.prompts, []);
+      assert.deepEqual(terminal.alerts, []);
     } finally {
       await dispose?.();
     }
@@ -761,19 +768,22 @@ test("a session change invalidates initial plan lookup", async (test) => {
     entered();
     await blocked;
   });
-  test.mock.method(Launcher.prototype, "review", () =>
-    assert.fail("stale plan launched"),
-  );
+  let launches = 0;
+  test.mock.method(Launcher.prototype, "review", async () => {
+    launches++;
+    return "";
+  });
   const dispose = await plugin.setup(terminal.ctx);
   try {
     assert.ok(terminal.listeners.has("session.execution.succeeded"));
     const review = terminal.emit("session.execution.succeeded");
     await reached;
-    terminal.session.agent = "build";
     terminal.emit("session.agent.selected");
     release();
     await review;
+    assert.equal(launches, 0);
     assert.deepEqual(terminal.prompts, []);
+    assert.deepEqual(terminal.alerts, []);
   } finally {
     release();
     await dispose?.();
